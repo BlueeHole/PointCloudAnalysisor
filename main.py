@@ -38,11 +38,11 @@ def registration(source, target, visualize=False):
     source.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.08, max_nn=30))
     target.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.08, max_nn=30))
     reg_p2l = o3d.pipelines.registration.registration_icp(
-        source, target, 0.2, np.identity(4),
+        source, target, 0.3, np.identity(4),
         o3d.pipelines.registration.TransformationEstimationPointToPlane())
     print(reg_p2l)
-    # print("Transformation is:")
-    # print(reg_p2l.transformation)
+    print("Transformation is:")
+    print(reg_p2l.transformation)
     if visualize:
         draw_registration_result(source, target, reg_p2l.transformation)
 
@@ -69,67 +69,83 @@ def my_density_hist(x):
 
 
 def testWidth(stand_model):
-    my_model = o3d.io.read_point_cloud('car_model_50.pcd')
+    my_model = o3d.io.read_point_cloud('car_model_100.pcd')
     R = stand_model.get_rotation_matrix_from_xyz((0, 0, 0))
     # R = stand_model.get_rotation_matrix_from_xyz((0, 0, np.pi))
-    # R = stand_model.get_rotation_matrix_from_xyz((0, 0, np.pi/2))
+    # R = stand_model.get_rotation_matrix_from_xyz((0, 0, -np.pi/2))
     my_model = my_model.translate((0, 0, 0), relative=False)
     stand_model = stand_model.translate((0, 0, 0), relative=False)
     stand_model.rotate(R, center=stand_model.get_center())
-    registration(stand_model, my_model, True)
+    # registration(stand_model, my_model, True)
     # 就是用KNN法计算距离的
     # https://github.com/isl-org/Open3D/blob/master/cpp/open3d/geometry/PointCloud.cpp
-    dist = my_model.compute_point_cloud_distance(stand_model)
-    dist = np.asarray(dist)
-    print(dist.mean())
-    # ind = np.where(dist > 0.2)[0]
-    # pcd3 = my_model.select_by_index(ind)
-    # o3d.visualization.draw_geometries([pcd3], window_name="计算点云距离",
-    #                                   width=800,  # 窗口宽度
-    #                                   height=600)  # 窗口高度
-    my_hist(dist)
-    plt.show()
+    # dist = my_model.compute_point_cloud_distance(stand_model)
+    # dist = np.asarray(dist)
+    # print(dist.mean())
+    # print(dist)
+    # ind = np.where(dist > 0.2) where返回的是下标
+    # print(ind)  # why is (array([     0,      1,      2, ..., 681158, 681162, 681164]),)
+    # ind = ind[0]
+    # print(ind)
+
+    points = np.asarray(stand_model.points)
+    ind = np.where(points[:, 0] > 0.2)[0]
+    ind = np.array(ind)
+    print(ind)
+    pcd = stand_model.select_by_index(ind)
+
+    o3d.visualization.draw_geometries([pcd], window_name="计算点云距离",
+                                      width=800,  # 窗口宽度
+                                      height=600)  # 窗口高度
+    # my_hist(dist)
+    # plt.show()
 
 
 if __name__ == '__main__':
     print('Point Cloud Processor')
-    '''
-    Car Pose
-    -6.63132, 1.85461, 0,
-    0, 0, -1.57
-    '''
     size = 467575
     stand_model = gen_standard_model(size, visual=False)
     stand_model.scale(0.06, center=stand_model.get_center())
     # o3d.io.write_point_cloud('stand_model.pcd', stand_model, write_ascii=True)
 
-    my_model = o3d.io.read_point_cloud('my_model_transed.pcd')
-    # R = stand_model.get_rotation_matrix_from_xyz((0, 0, -np.pi/2))
-    # my_model = o3d.io.read_point_cloud('car_transed.pcd')
-    # R = stand_model.get_rotation_matrix_from_xyz((np.pi / 2, -np.pi / 2, 0))
+    my_model = o3d.io.read_point_cloud('car_model_poseM1.57.pcd')
     # down_model = my_model.voxel_down_sample(voxel_size=0.01)
     down_model = my_model.uniform_down_sample(every_k_points=5)
 
     # 用静止帧验证宽度问题，发现还是宽度不一致，考虑是雷达的问题，不是GICP的问题
-    testWidth(stand_model)
+    # testWidth(stand_model)
 
-    # print(down_model.get_center())
-    # print(stand_model.get_center())
+    print(down_model.get_center())
+    print(stand_model.get_center())
+    # down_model = down_model.translate((0, 0, 0), relative=False)
     # # 配合my_model_transed的代码
     # down_model = down_model.translate(down_model.get_center(), relative=False)
-    # stand_model = stand_model.translate((0, 0, 0), relative=False)
-    # stand_model.rotate(R, center=stand_model.get_center())
-    #
-    # viewer = o3d.visualization.Visualizer()
-    # viewer.create_window(width=1000, height=800)
-    # viewer.add_geometry(stand_model)
-    # viewer.add_geometry(down_model)
-    # # viewer.add_geometry(a)
-    # opt = viewer.get_render_option()
-    # opt.show_coordinate_frame = True
-    # # viewer.create_window(width=800, height=600)
-    # viewer.run()
-    # viewer.destroy_window()
+    stand_model = stand_model.translate((0, 0, 0), relative=False)
+    # 目前需要手动输入模型第一帧的真实位姿（不过Z需要有一个固定偏差，是因为stand_model的z轴原点）
+    T = np.eye(4)
+    T[:3, :3] = stand_model.get_rotation_matrix_from_xyz((0, 0, -1.57))
+    T[0, 3] = -6.63132
+    T[1, 3] = 1.85461
+    T[2, 3] = 1.21
+    R = stand_model.get_rotation_matrix_from_xyz((0, 0, -np.pi / 2)) #是由于模型的坐标系规定和Gazebo不一样
+    stand_model.rotate(R, center=stand_model.get_center())
+    stand_model.transform(T)
+    print(len(down_model.points))
+    # T_icp = registration(down_model, stand_model, True) # 不需要ICP了，精度误差0.03m
+    # # https://github.com/isl-org/Open3D/blob/master/cpp/open3d/geometry/PointCloud.cpp
+    dist = down_model.compute_point_cloud_distance(stand_model)
+    dist = np.asarray(dist)
+    print(dist.mean())
+
+    viewer = o3d.visualization.Visualizer()
+    viewer.create_window(width=1000, height=800)
+    viewer.add_geometry(stand_model)
+    viewer.add_geometry(down_model)
+    # viewer.add_geometry(a)
+    opt = viewer.get_render_option()
+    opt.show_coordinate_frame = True
+    viewer.run()
+    viewer.destroy_window()
 
     # plt.plot(dist)
     # plt.show()
